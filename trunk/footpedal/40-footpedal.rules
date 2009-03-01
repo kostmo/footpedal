@@ -1,0 +1,2 @@
+SUBSYSTEM=="usb", SYSFS{idVendor}=="05f3", SYSFS{idProduct}=="00ff", GROUP="plugdev", MODE="0664"
+
