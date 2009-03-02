@@ -114,9 +114,9 @@ class ServerThread(threading.Thread):
 
 class FootpedalServer(gtk.Window):
 
-
-	def cb_dummy(self, widget):
-		print "Dummy callback."
+	appname = "footpedal"
+	version = "0.2"
+	local_share_dir = "/usr/share/"
 
 
 	DEFAULT_PORT = 46645
@@ -129,8 +129,18 @@ class FootpedalServer(gtk.Window):
 
 
 	# -------------------------------------------
-	def __init__(self):
+	def __init__(self, run_installed=True):
+
 		gtk.Window.__init__(self)
+
+
+		self.run_installed = run_installed
+		if run_installed:
+			self.img_directory = self.local_share_dir + self.appname + "/"
+
+		else:
+			import sys
+			self.img_directory = sys.path[0]
 
 
 		# These are "default" or "builtin" presets
@@ -149,10 +159,6 @@ class FootpedalServer(gtk.Window):
 		]
 
 
-
-
-		import sys
-		self.img_directory = sys.path[0]
 		from os import path
 		self.icon_path = path.join(self.img_directory, self.ANDROID_ICON)
 		
@@ -398,14 +404,13 @@ class FootpedalServer(gtk.Window):
 
 		menu.show_all()
 		return menu
-	# -----------------------------
 
+	# -----------------------------
 	def systray_popup_callback(self, status_icon, button, activate_time):
 		my_popup_menu = self.build_menu()
 		my_popup_menu.popup(None, None, None, button, activate_time, data=None)
 
 	# -----------------------------
-
 	def toggle_window(self, status_icon):
 		if self.hidden_window:
 			self.show()
@@ -413,7 +418,6 @@ class FootpedalServer(gtk.Window):
 		else:
 			self.hide()
 			self.hidden_window = True
-
 
 	# -------------------------------------------
 	def set_foot(self, down):
@@ -443,7 +447,7 @@ class FootpedalServer(gtk.Window):
 
 
 		# Note: The "pie" countdown only shows up when we add a button, like this:
-		n.add_action("empty", "Do it now", self.cb_dummy)
+#		n.add_action("empty", "Do it now", self.cb_dummy)
 
 		if not n.show():
 			print "Well then..."
@@ -470,8 +474,7 @@ if __name__ == "__main__":
 
 	gobject.threads_init()
 
-	fs = FootpedalServer()
-
+	fs = FootpedalServer(True)
 	server_thread = ServerThread(fs)
 	server_thread.start()
 
