@@ -55,9 +55,7 @@ class ServerThread(threading.Thread):
 	# -----------------------------
 	def handle_pedal_press(self, buttons):
 
-
 #		print "Current state:", buttons, "Previous state:", self.prev_state
-
 
 		any_down = reduce(lambda x, y: x or y, buttons)
 		self.controller_window.set_foot( any_down )
@@ -119,9 +117,7 @@ class FootpedalServer(gtk.Window):
 	local_share_dir = "/usr/share/"
 
 
-	DEFAULT_PORT = 46645
-	X11_KEY_DEFINITIONS = "/usr/share/X11/XKeysymDB"
-	ANDROID_ICON = "foot.png"
+	icon_filename = appname + ".png"
 
 	feet_images = ["foot_up.png", "foot_down.png"]
 
@@ -142,6 +138,10 @@ class FootpedalServer(gtk.Window):
 			import sys
 			self.img_directory = sys.path[0]
 
+		from os import path
+		self.icon_path = path.join(self.img_directory, self.icon_filename)
+
+
 
 		# These are "default" or "builtin" presets
 		self.pedal_function_groups = [
@@ -159,30 +159,12 @@ class FootpedalServer(gtk.Window):
 		]
 
 
-		from os import path
-		self.icon_path = path.join(self.img_directory, self.ANDROID_ICON)
-		
-
 
 		self.connect("delete_event", self.delete_event)
 		self.connect("destroy", self.destroy)
 		self.set_border_width(10)
 
 		self.hidden_window = True
-		self.pynotify_enabled = False
-
-		
-		
-		try:
-			import pynotify
-			if pynotify.init("My Application Name"):
-				self.pynotify_enabled = True
-			else:
-				print "there was a problem initializing the pynotify module"
-
-		except:
-			print "you don't seem to have pynotify installed"
-
 
 
 
@@ -425,32 +407,6 @@ class FootpedalServer(gtk.Window):
 		from os import path
 		icon_path = path.join(self.img_directory, self.feet_images[down])
 		self.my_status_icon.set_from_file( icon_path )
-
-	# -------------------------------------------
-	def hello(self, widget, title="Title", message="message"):
-
-		if not self.pynotify_enabled:
-			return
-
-		n = pynotify.Notification(title, message)
-
-		pixbuf = gtk.gdk.pixbuf_new_from_file( self.icon_path )
-#		n.set_urgency(pynotify.URGENCY_CRITICAL)
-#		n.set_category("device")
-		n.set_icon_from_pixbuf( pixbuf )
- 		n.set_timeout(5000)
-
-
-		# Note: When this is enabled, the notification bubble may be delayed
-		# until the app regains focus, which may be a long time and requires user interaction
-#		n.attach_to_status_icon( self.my_status_icon )
-
-
-		# Note: The "pie" countdown only shows up when we add a button, like this:
-#		n.add_action("empty", "Do it now", self.cb_dummy)
-
-		if not n.show():
-			print "Well then..."
 
 	# -------------------------------------------
 	def delete_event(self, widget, event, data=None):

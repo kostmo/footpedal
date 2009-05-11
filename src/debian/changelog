@@ -1,0 +1,5 @@
+footpedal (0.1.0-0ubuntu1) jaunty; urgency=low
+
+  * Initial Ubuntu package
+
+ -- Karl Ostmo <kostmo@gmail.com>  Sun, 10 May 2009 23:07:36 -0400

@@ -1,0 +1,32 @@
+=head1 NAME
+
+footpedal - USB foot pedal integration for Gnome desktops
+
+=head1 SYNOPSIS
+
+ubudroid-server.py
+
+=head1 DESCRIPTION
+
+B<footpedal> acts as a "pseduo-driver" for the USB foot pedal for
+transcriptionists by VEC. It lets you assign arbitrary keystrokes to the left,
+middle, and right pedal. It might also work with a home-built USB foot pedal. 
+
+=head1 BUGS
+
+
+=head1 AUTHORS
+
+B<footpedal> was written by Karl Ostmo <kostmo@gmail.com>.
+
+=head1 COPYRIGHT
+
+This program is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the
+Free Software Foundation; either version 2, or (at your option) any
+later version.
+
+On Debian GNU/Linux systems, the complete text of the GNU General
+Public License can be found in `/usr/share/common-licenses/GPL'.
+
+=cut
