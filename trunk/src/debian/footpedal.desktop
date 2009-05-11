@@ -1,0 +1,9 @@
+#!/usr/bin/env xdg-open
+[Desktop Entry]
+Name=Footpedal Utility
+Comment=Footpedal configuration panel
+Exec=footpedal
+Terminal=false
+Type=Application
+Icon=footpedal
+Categories=GTK;GNOME;TrayIcon;Utility;HardwareSettings;Accessibility;Electronics;
