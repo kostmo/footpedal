@@ -2,11 +2,11 @@
 
 . package_defines.sh
 
-svn export $PROGNAME $RELEASE_NAME.orig
+svn export src $RELEASE_NAME.orig
 cd $RELEASE_NAME.orig
 rm -r debian
 cd ..
-svn export $PROGNAME $RELEASE_NAME
+svn export src $RELEASE_NAME
 cd $RELEASE_NAME
 debuild
 cd ..
