@@ -170,12 +170,6 @@ class FootpedalServer(gtk.Window):
 
 		vbox = gtk.VBox(False, 5)
 
-		button = gtk.Button("Show message")
-		button.connect("clicked", self.hello)
-#		vbox.pack_start(button, False, False)
-
-
-
 		lil_hbox = gtk.HBox(False, 5)
 		lil_hbox.set_tooltip_text("Select pedal functions")
 		vbox.pack_start( lil_hbox, False, False)

@@ -6,4 +6,4 @@ Exec=footpedal
 Terminal=false
 Type=Application
 Icon=footpedal
-Categories=GTK;GNOME;TrayIcon;Utility;HardwareSettings;Accessibility;Electronics;
+Categories=GTK;GNOME;Settings;HardwareSettings;Accessibility;
