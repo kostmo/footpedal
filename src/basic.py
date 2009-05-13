@@ -12,6 +12,8 @@ WORD_LENGTH = 24
 
 if __name__=="__main__":
 
+	print "Depress pedal to test..."
+
 	try:
 		hidfile = open(hidfilename)
 	except IOError:
