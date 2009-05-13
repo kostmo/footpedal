@@ -64,19 +64,21 @@ class ServerThread(threading.Thread):
 		treestore = self.controller_window.pedalpress_treeview.get_model()
 		toplevel_iter = treestore.get_iter_first()
 
+		pedal_enabled = []
 		for i, value in enumerate(buttons):
 			treestore.set_value(toplevel_iter, 2, value)
+			pedal_enabled.append( treestore.get_value(toplevel_iter, 3) )
 			toplevel_iter = treestore.iter_next(toplevel_iter)
-
 
 		function_group = self.controller_window.pedal_function_selector.get_active()
 
 		prev_any_down = reduce(lambda x, y: x or y, self.prev_state)
 		if not prev_any_down:
 
+
 			active_button = -1
-			for idx in [0, 2, 1]:	# Priority: Left, Center, Right
-				if buttons[idx]:
+			for idx in [0, 2, 1]:	# Priority: Left, Right, Center
+				if buttons[idx] and pedal_enabled[idx]:
 					active_button = idx
 					break
 			
@@ -188,21 +190,28 @@ class FootpedalServer(gtk.Window):
 
 
 
-		ts = gtk.ListStore(str, str, bool)
+		ts = gtk.ListStore(str, str, bool, bool)
 		for s in self.pedal_identifiers:
-			ts.append( [s, "", False] )
+			ts.append( [s, "", False, True] )
 		self.pedalpress_treeview = gtk.TreeView( ts )
 		self.pedalpress_treeview.set_tooltip_text("Pedal status")
 		self.pedalpress_treeview.set_rules_hint(True)	# alternates row coloring automatically
 		self.pedalpress_treeview.set_grid_lines(gtk.TREE_VIEW_GRID_LINES_VERTICAL)
 
-		for i, new_col_label in enumerate(["Pedal", "Function", "Depressed"]):
-			cell = gtk.CellRendererText()
+		for i, new_col_label in enumerate(["Pedal", "Function", "Depressed", "Enabled"]):
+
+			if i<2:
+				cell = gtk.CellRendererText()
+			else:
+				cell = gtk.CellRendererToggle()
+				if i==3:
+					cell.connect("toggled", self.cb_cell_toggle)
 
 			
-			if i==2:
+			if i>=2:
 				tvcolumn = gtk.TreeViewColumn(new_col_label, cell)
-				tvcolumn.set_cell_data_func(cell, self.treeview_renderfunc)
+#				tvcolumn.set_cell_data_func(cell, self.treeview_renderfunc)
+				tvcolumn = gtk.TreeViewColumn(new_col_label, cell, active=i)
 			else:
 				tvcolumn = gtk.TreeViewColumn(new_col_label, cell, text=i)
 
@@ -231,6 +240,13 @@ class FootpedalServer(gtk.Window):
 		self.set_foot(False)
 		self.pedal_function_selector.set_active(1)
 
+	# -------------------------------------------
+	def cb_cell_toggle(self, cellrenderertoggle, path):
+
+		treestore = self.pedalpress_treeview.get_model()
+		my_iter = treestore.get_iter(path)
+		old = treestore.get_value(my_iter, 3)
+		treestore.set_value(my_iter, 3, not old)
 
 	# -------------------------------------------
 	def cb_dialog_close(self, dialog):
