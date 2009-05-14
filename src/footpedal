@@ -202,18 +202,13 @@ class FootpedalServer(gtk.Window):
 
 			if i<2:
 				cell = gtk.CellRendererText()
+				tvcolumn = gtk.TreeViewColumn(new_col_label, cell, text=i)
 			else:
 				cell = gtk.CellRendererToggle()
+				tvcolumn = gtk.TreeViewColumn(new_col_label, cell, active=i)
+
 				if i==3:
 					cell.connect("toggled", self.cb_cell_toggle)
-
-			
-			if i>=2:
-				tvcolumn = gtk.TreeViewColumn(new_col_label, cell)
-#				tvcolumn.set_cell_data_func(cell, self.treeview_renderfunc)
-				tvcolumn = gtk.TreeViewColumn(new_col_label, cell, active=i)
-			else:
-				tvcolumn = gtk.TreeViewColumn(new_col_label, cell, text=i)
 
 			tvcolumn.set_expand(True)
 			self.pedalpress_treeview.append_column(tvcolumn)
@@ -234,7 +229,7 @@ class FootpedalServer(gtk.Window):
 		self.my_status_icon.connect("popup-menu", self.systray_popup_callback)
 
 		self.set_icon_from_file( self.icon_path )
-		self.set_title("Foot pedal")
+		self.set_title("Foot Pedal Configuration")
 
 
 		self.set_foot(False)
@@ -339,15 +334,6 @@ class FootpedalServer(gtk.Window):
 		for value in labels:
 			treestore.set_value(toplevel_iter, 1, value)
 			toplevel_iter = treestore.iter_next(toplevel_iter)
-
-	# -------------------------------------------
-	def treeview_renderfunc(self, column, cell_renderer, tree_model, my_iter):
-
-		data_value = tree_model.get_value(my_iter, 2)
-		if data_value:
-			cell_renderer.set_property('text', "X")
-		else:
-			cell_renderer.set_property('text', "")
 
 	# -----------------------------
 	def show_preferences_dialog(self, widget):
