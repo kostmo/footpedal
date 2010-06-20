@@ -35,7 +35,7 @@ class KeyCombo:
 			self.keydown(k)
 			self.held_keys.append(k)
 
-		# XXX I'm only doing this so that the application switcher works properly.
+		# XXX I only tried this route to get the ALT+Tab application switcher working properly (see notes below).
 		self.keyinstantaneous(self.key)
 #		self.keydown(self.key)
 #		self.held_keys.append(self.key)
@@ -96,7 +96,7 @@ class ServerThread(threading.Thread):
 	1 or 0 (pressed or not pressed)."""
 
 	HID_DEVICE_PATH = "/dev/usb/hiddev0"
-	PEDAL_COUNT = 3	# They are eight positions apart. Is that significant?
+	PEDAL_COUNT = 3
 	GROUP_SIZE = 8
 	DEPRESSED_BYTE_INDEX = 4
 	WORD_LENGTH = PEDAL_COUNT*GROUP_SIZE
@@ -234,8 +234,11 @@ class ServerThread(threading.Thread):
 
 	# XXX This function turned out to be not very useful.
 	# The Compiz application switcher requires the ALT key to be held down
-	# while navigationg through the applications with the left and right arrows.
+	# while navigating through the applications with the left and right arrows.
 	# This does not map straightforwardly to my two-pedal scheme.
+	# XXX Right now, the application switcher is broken. If I really wanted to get this to work,
+	# I'd have to code a special case to accomodate the app switcher, possibly one where
+	# the alt key maintains being held down until the user taps the middle pedal.
 	def handle_sustained_pedal_press(self, raw_current_pedal_state, pedals_enabled):
 		"""We are more restrictive about pressing down a pedal than relasing the pedal.
 		This is because the middle pedal often gets accidentally pressed after the side pedals,
