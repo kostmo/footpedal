@@ -6,129 +6,320 @@ import gtk, gobject
 import threading
 
 import os
+import pynotify
 
-# =========================
+# =============================================================================
+class KeyCombo:
 
+	KEYNAME_CONTROL = "Control_L"
+	KEYNAME_SHIFT = "Shift_L"
+	KEYNAME_ALT = "Alt_L"
+
+	# ---------------------------------------------------------------------
+
+	def __init__(self, key, modifiers=[]):
+		self.key = key
+		self.modifiers = modifiers
+
+		self.held_keys = []
+
+	# ---------------------------------------------------------------------
+
+	def press(self):
+		self.keypressWithModifiers(self.key, self.modifiers)
+
+	# ---------------------------------------------------------------------
+
+	def pressDown(self):
+		for k in self.modifiers:
+			self.keydown(k)
+			self.held_keys.append(k)
+
+		# XXX I'm only doing this so that the application switcher works properly.
+		self.keyinstantaneous(self.key)
+#		self.keydown(self.key)
+#		self.held_keys.append(self.key)
+
+		# We reverse the list so they come up in LIFO order
+		self.held_keys.reverse()
+
+	# ---------------------------------------------------------------------
+
+	def releaseHeldKeys(self):
+		for k in self.held_keys:
+			self.keyup(k)
+
+		self.held_keys = []
+
+	# ---------------------------------------------------------------------
+
+	def keypressWithModifiers(self, key, modifiers=[]):
+		"""Wraps a keypress with key modifiers, recursively"""
+
+		if modifiers:
+			modifier = modifiers[0]
+			self.keydown(modifier)
+			self.keypressWithModifiers(key, modifiers[1:])
+			self.keyup(modifier)
+		else:
+			self.keyinstantaneous(key)
+
+	# ---------------------------------------------------------------------
+
+	def keyinstantaneous(self, key):
+		self.xteCommand("key", key)
+
+	# ---------------------------------------------------------------------
+
+	def keydown(self, key):
+		self.xteCommand("keydown", key)
+
+	# ---------------------------------------------------------------------
+
+	def keyup(self, key):
+		self.xteCommand("keyup", key)
+
+	# ---------------------------------------------------------------------
+
+	def xteCommand(self, command, key):
+		os.system( 'xte "' + command + ' ' + key + '"' )
+
+# =============================================================================
 class ServerThread(threading.Thread):
 
-	"""Server thread"""
+	"""Monitors the character device for input.
+	Schema:
+	Upon each pedal action, 24 characters are written to the device.
+	This consists of three groups of 8 characters apiece.
+	Each group contains a prefix of the form [X, 0, 9, 0], where X
+	is the pedal index, followed by [Y, 0, 0, 0], where Y is either
+	1 or 0 (pressed or not pressed)."""
 
-	hidfilename = "/dev/usb/hiddev0"
-	signal_chars = [4, 12, 20]
-	WORD_LENGTH = 24
+	HID_DEVICE_PATH = "/dev/usb/hiddev0"
+	PEDAL_COUNT = 3	# They are eight positions apart. Is that significant?
+	GROUP_SIZE = 8
+	DEPRESSED_BYTE_INDEX = 4
+	WORD_LENGTH = PEDAL_COUNT*GROUP_SIZE
+
+	PEDAL_FILTER_PRIORITY = [0, 2, 1]	# Priority: Left, Right, Center
 
 	stopthread = threading.Event()
 
-	# -----------------------------
-	def __init__(self, controller_window):
+	# ---------------------------------------------------------------------
+
+	def __init__(self, app_window):
 		threading.Thread.__init__(self)
 
-		self.setDaemon(True)
+		self.setDaemon(True)	# Runs in daemon mode; will stop when program is closed
+		self.app_window = app_window	# Maintain a reference to the GUI
+		self.raw_previous_pedal_state = [0]*self.PEDAL_COUNT	# Initialize pedal positions to zero
 
-		self.controller_window = controller_window
+		# Check whether your notification agent support
+		# icon-summary-body layout.
+		self.pynotify_supported = pynotify.init("icon-summary-body")
+		if self.pynotify_supported:
+			self.reusable_notification = pynotify.Notification(
+						"You have a mail",
+						"You have new e-mail from Milinda",
+						"notification-message-email")
 
-		self.prev_state = [0]*3
+			self.reusable_notification.attach_to_status_icon(self.app_window.my_status_icon)
+			self.reusable_notification.set_urgency(pynotify.URGENCY_LOW)	# Doesn't do anything
+			self.reusable_notification.set_timeout(1000)	# Doesn't do anything
 
-	# -----------------------------
+		# This is a dictionary of lists.
+		# When a pedal undergoes a "sustained press", the keycombo object
+		# is stored under that pedal's index.
+		self.held_key_combos = [[] for i in range(self.PEDAL_COUNT)]
+
+	# ---------------------------------------------------------------------
+
+	def error_dialog_dismiss_callback(self, dialog, response_id):
+		print "Exiting..."
+		exit(1)
+
+	# ---------------------------------------------------------------------
+
 	def run(self):
 
 		try:
-			hidfile = open(self.hidfilename)
+			hidfile = open(self.HID_DEVICE_PATH)
 		except IOError:
 
-			msg = "You need permission to access the device.  Type the following:\n"
-			msg += "sudo chmod a+r " + self.hidfilename
-			self.controller_window.hello(None, title="Permission lacking", message=msg)
+			msg = "You need permission to access the device. Try entering the following command:\n"
+			msg += "sudo chmod a+r " + self.HID_DEVICE_PATH
+
+			print msg
+
+			gtk.gdk.threads_enter()
+			dialog = gtk.MessageDialog(parent=self.app_window, flags=0, buttons=gtk.BUTTONS_CLOSE, type=gtk.MESSAGE_ERROR,
+				message_format="Permission lacking")
+			dialog.connect("response", self.error_dialog_dismiss_callback)
+			dialog.format_secondary_text(msg)
+			dialog.show()
 			return
 
-
+		# Keep reading the character device
 		while not self.stopthread.isSet():
+			pedal_byte_values = map(ord, hidfile.read(self.WORD_LENGTH))
+#			print "Numeric representation of string:", pedal_byte_values
 
-			mystring = hidfile.read(self.WORD_LENGTH)
-			buttons = [ord(mystring[i]) for i in self.signal_chars]
+			# Split message into signals for each pedal
+			pedal_signals = [pedal_byte_values[self.GROUP_SIZE*i:self.GROUP_SIZE*(i+1)] for i in range(self.PEDAL_COUNT)]
+			raw_current_pedal_state = [bool(signal[self.DEPRESSED_BYTE_INDEX]) for signal in pedal_signals]
 
-			self.handle_pedal_press(buttons)
-
+			gobject.idle_add(self.handle_pedal_press, raw_current_pedal_state)
 
 		hidfile.close()
 
-	# -----------------------------
-	def handle_pedal_press(self, buttons):
+	# ---------------------------------------------------------------------
 
-#		print "Current state:", buttons, "Previous state:", self.prev_state
+	def handle_pedal_press(self, raw_current_pedal_state):
+		"""We interact with the UI in this function, so it must happen in the UI thread via idle_add()"""
 
-		any_down = reduce(lambda x, y: x or y, buttons)
-		self.controller_window.set_foot( any_down )
+#		print "Current state:", raw_current_pedal_state, "Previous state:", self.raw_previous_pedal_state
+		self.app_window.set_foot_position_icon( any(raw_current_pedal_state) )
 
-
-		treestore = self.controller_window.pedalpress_treeview.get_model()
+		# Update treeview and read "disabled" status
+		treestore = self.app_window.pedalpress_treeview.get_model()
 		toplevel_iter = treestore.get_iter_first()
-
-		pedal_enabled = []
-		for i, value in enumerate(buttons):
-			treestore.set_value(toplevel_iter, 2, value)
-			pedal_enabled.append( treestore.get_value(toplevel_iter, 3) )
+		pedals_enabled = []
+		for i, value in enumerate(raw_current_pedal_state):
+			treestore.set_value(toplevel_iter, FootpedalAppWindow.TREESTORE_COLUMN_PEDAL_DEPRESSED, value)
+			pedals_enabled.append( treestore.get_value(toplevel_iter, FootpedalAppWindow.TREESTORE_COLUMN_PEDAL_ENABLED) )
 			toplevel_iter = treestore.iter_next(toplevel_iter)
 
-		function_group = self.controller_window.pedal_function_selector.get_active()
+		if self.app_window.enable_sustained_keypresses.get_active():
+			self.handle_sustained_pedal_press(raw_current_pedal_state, pedals_enabled)
+		else:
+			self.handle_instantaneous_pedal_press(raw_current_pedal_state, pedals_enabled)
 
-		prev_any_down = reduce(lambda x, y: x or y, self.prev_state)
-		if not prev_any_down:
+		self.raw_previous_pedal_state = raw_current_pedal_state
 
+	# ---------------------------------------------------------------------
 
-			active_button = -1
-			for idx in [0, 2, 1]:	# Priority: Left, Right, Center
-				if buttons[idx] and pedal_enabled[idx]:
-					active_button = idx
-					break
-			
-			if active_button >= 0:
+	def handle_instantaneous_pedal_press(self, raw_current_pedal_state, pedals_enabled):
+
+		# Only perform an action if all of the pedals were in the "up" position first.
+		# That means that simultaneous pressing of different pedals is disallowed.
+		if not any(self.raw_previous_pedal_state):
+
+			filtered_pedal = self.getSingleActivePedal(raw_current_pedal_state, pedals_enabled)
+			if filtered_pedal >= 0:
 				# Perform pedal action:
 
-				key = self.controller_window.command_matrix[function_group][active_button]
-				if function_group == 0:
-					self.special_key_sequence( key )
-
+				if self.app_window.cycling_functions_checkbox.get_active():
+					pedal_function_group_index = self.app_window.cycle_function_selector.get_active()
+					keycombo = self.app_window.cycling_function_keys[pedal_function_group_index][filtered_pedal]
+					if keycombo:
+						keycombo.press()
+						action_name = self.app_window.cycling_functions[pedal_function_group_index][filtered_pedal]
+					else:
+						new_index = (pedal_function_group_index + 1) % len(self.app_window.cycling_functions)
+						self.app_window.cycle_function_selector.set_active( new_index )
+						action_name = self.app_window.cycle_function_selector.get_active_text()
 				else:
-					os.system( 'xte "key ' + key + '"' )
+					pedal_function_group_index = self.app_window.pedal_function_selector.get_active()
+					keycombo = self.app_window.command_matrix[pedal_function_group_index][filtered_pedal]
+					keycombo.press()
+					action_name = self.app_window.pedal_function_groups[pedal_function_group_index][filtered_pedal]
 
-				print self.controller_window.pedal_function_groups[function_group][active_button]
+				print action_name
+
+				if self.pynotify_supported:
+					self.reusable_notification.update("Foot pedal function:", action_name)
+					self.reusable_notification.show()
+
+	# ---------------------------------------------------------------------
+
+	# XXX This function turned out to be not very useful.
+	# The Compiz application switcher requires the ALT key to be held down
+	# while navigationg through the applications with the left and right arrows.
+	# This does not map straightforwardly to my two-pedal scheme.
+	def handle_sustained_pedal_press(self, raw_current_pedal_state, pedals_enabled):
+		"""We are more restrictive about pressing down a pedal than relasing the pedal.
+		This is because the middle pedal often gets accidentally pressed after the side pedals,
+		so we want to ignore that.  However, we don't want any pedals getting stuck.  This is why
+		we process any "release" action that we detect."""
+
+		newly_released_pedals = [self.raw_previous_pedal_state[i] and not raw_current_pedal_state[i] for i in range(len(raw_current_pedal_state))]
+		newly_depressed_pedals = [raw_current_pedal_state[i] and not self.raw_previous_pedal_state[i] for i in range(len(raw_current_pedal_state))]
 
 
-		self.prev_state = buttons
+		# First, we process the released pedals.
+		for i, released in enumerate(newly_released_pedals):
+			if released:
+				for combo in self.held_key_combos[i]:
+					combo.releaseHeldKeys()
+				self.held_key_combos[i] = []	# Clear the list after releasing all keys
 
-	# -----------------------------
-	def special_key_sequence(self, key):
 
-		os.system( 'xte "keydown Control_L"' )
-		os.system( 'xte "key ' + key + '"' )
-		os.system( 'xte "keyup Control_L"' )
+		if not any(self.raw_previous_pedal_state):
 
-	# -----------------------------
+			filtered_pedal = self.getSingleActivePedal(raw_current_pedal_state, pedals_enabled)
+			if filtered_pedal >= 0:
+				# Perform pedal action:
+
+				if self.app_window.cycling_functions_checkbox.get_active():
+					pedal_function_group_index = self.app_window.cycle_function_selector.get_active()
+					keycombo = self.app_window.cycling_function_keys[pedal_function_group_index][filtered_pedal]
+					if keycombo:
+						self.held_key_combos[filtered_pedal].append(keycombo)
+						keycombo.pressDown()
+						action_name = self.app_window.cycling_functions[pedal_function_group_index][filtered_pedal]
+					else:
+						new_index = (pedal_function_group_index + 1) % len(self.app_window.cycling_functions)
+						self.app_window.cycle_function_selector.set_active( new_index )
+						action_name = self.app_window.cycle_function_selector.get_active_text()
+				else:
+					pedal_function_group_index = self.app_window.pedal_function_selector.get_active()
+					keycombo = self.app_window.command_matrix[pedal_function_group_index][filtered_pedal]
+					self.held_key_combos[filtered_pedal].append(keycombo)
+					keycombo.pressDown()
+					action_name = self.app_window.pedal_function_groups[pedal_function_group_index][filtered_pedal]
+
+				print action_name
+
+				if self.pynotify_supported:
+					self.reusable_notification.update("Foot pedal function:", action_name)
+					self.reusable_notification.show()
+
+	# ---------------------------------------------------------------------
+	def getSingleActivePedal(self, raw_current_pedal_state, pedals_enabled):
+		filtered_pedal = -1
+		for idx in self.PEDAL_FILTER_PRIORITY:
+			if raw_current_pedal_state[idx] and pedals_enabled[idx]:
+				filtered_pedal = idx
+				break
+
+		return filtered_pedal
+
+	# ---------------------------------------------------------------------
+
 	def stop(self):
-		"""send QUIT request to http server running on localhost:<port>"""
-
 		self.stopthread.set()
 
-# =========================
-
-class FootpedalServer(gtk.Window):
+# =============================================================================
+class FootpedalAppWindow(gtk.Window):
 
 	appname = "footpedal"
-	version = "0.2"
+	version = "0.3"
 	local_share_dir = "/usr/share/"
-
 
 	icon_filename = appname + ".png"
 
-	feet_images = ["foot_up.png", "foot_down.png"]
+	FOOT_IMAGES = ["foot_up.png", "foot_down.png"]
+	PEDAL_LABELS = ["Left", "Center", "Right"]
 
-	pedal_identifiers = ["Left", "Center", "Right"]
+	TREESTORE_COLUMN_FUNCTION_NAME = 1
+	TREESTORE_COLUMN_PEDAL_DEPRESSED = 2
+	TREESTORE_COLUMN_PEDAL_ENABLED = 3
 
+	WINDOW_PADDING = 5
 
-	# -------------------------------------------
-	def __init__(self, run_installed=True):
+	# ---------------------------------------------------------------------
 
+	def __init__(self, run_installed=True, show_panel=False):
 		gtk.Window.__init__(self)
 
 
@@ -144,7 +335,6 @@ class FootpedalServer(gtk.Window):
 		self.icon_path = path.join(self.img_directory, self.icon_filename)
 
 
-
 		# These are "default" or "builtin" presets
 		self.pedal_function_groups = [
 			["Cut", "Copy", "Paste"],
@@ -154,28 +344,74 @@ class FootpedalServer(gtk.Window):
 		]
 
 		self.command_matrix = [
-			["x","c","v"],
-			["XF86AudioLowerVolume", "XF86AudioMute", "XF86AudioRaiseVolume"],
-			["XF86AudioPrev", "XF86AudioPlay", "XF86AudioNext"],
-			["Home", "Down", "Page_Down"]
+			[KeyCombo("x", [KeyCombo.KEYNAME_CONTROL]), KeyCombo("c", [KeyCombo.KEYNAME_CONTROL]), KeyCombo("v", [KeyCombo.KEYNAME_CONTROL])],
+			[KeyCombo("XF86AudioLowerVolume"), KeyCombo("XF86AudioMute"), KeyCombo("XF86AudioRaiseVolume")],
+			[KeyCombo("XF86AudioPrev"), KeyCombo("XF86AudioPlay"), KeyCombo("XF86AudioNext")],
+			[KeyCombo("Home"), KeyCombo("Down"), KeyCombo("Page_Down")]
 		]
 
 
 
+		self.cycling_functions = [
+			["Cycle Desktops left", None, "Cycle Desktops right"],
+			["Cycle Applications backward", None, "Cycle Applications forward"],
+			["Cycle Tabs backward", None, "Cycle Tabs forward"],
+			["Scroll web page up", None, "Scroll web page down"],
+		]
+		self.cycling_function_keys = [
+			[
+				KeyCombo("Left", [KeyCombo.KEYNAME_CONTROL, KeyCombo.KEYNAME_ALT]),
+				None,
+				KeyCombo("Right", [KeyCombo.KEYNAME_CONTROL, KeyCombo.KEYNAME_ALT])
+			], [
+				KeyCombo("Tab", [KeyCombo.KEYNAME_ALT, KeyCombo.KEYNAME_SHIFT]),
+				None,
+				KeyCombo("Tab", [KeyCombo.KEYNAME_ALT])
+			], [
+				KeyCombo("Tab", [KeyCombo.KEYNAME_CONTROL, KeyCombo.KEYNAME_SHIFT]),
+				None,
+				KeyCombo("Tab", [KeyCombo.KEYNAME_CONTROL])
+			], [
+				KeyCombo("space", [KeyCombo.KEYNAME_SHIFT]),
+				None,
+				KeyCombo("space")
+			]
+		]
+
 		self.connect("delete_event", self.delete_event)
 		self.connect("destroy", self.destroy)
-		self.set_border_width(10)
+		self.set_border_width(2*self.WINDOW_PADDING)
 
-		self.hidden_window = True
+		self.hidden_window = not show_panel
 
 
+		self.populateUserInterface()
 
-		vbox = gtk.VBox(False, 5)
+		# Set default controls values
+		self.set_foot_position_icon(False)
+		self.cycle_function_selector.set_active(0)
+		self.pedal_function_selector.set_active(1)
+		self.cb_toggle_cycling_functions(self.cycling_functions_checkbox)
 
-		lil_hbox = gtk.HBox(False, 5)
+	# ---------------------------------------------------------------------
+
+	def populateUserInterface(self):
+
+		vbox = gtk.VBox(False, self.WINDOW_PADDING)
+
+
+		self.cycling_functions_checkbox = gtk.CheckButton("Use cycling functions")
+		self.cycling_functions_checkbox.connect("toggled", self.cb_toggle_cycling_functions)
+		vbox.pack_start( self.cycling_functions_checkbox, False, False)
+
+
+		lil_hbox = gtk.HBox(False, self.WINDOW_PADDING)
 		lil_hbox.set_tooltip_text("Select pedal functions")
 		vbox.pack_start( lil_hbox, False, False)
 		lil_hbox.pack_start( gtk.Label("Operation Mode:"), True, True)
+
+
+
 		self.pedal_function_selector = gtk.combo_box_new_text()
 		for src in self.pedal_function_groups:
 			self.pedal_function_selector.append_text( "/".join(src) )
@@ -184,14 +420,21 @@ class FootpedalServer(gtk.Window):
 		lil_hbox.pack_start( self.pedal_function_selector, False, False)
 		self.pedal_function_selector.connect("changed", self.cb_functions_changed)
 
-		button = gtk.Button("Edit...")
-		lil_hbox.pack_start( button, False, False)
-		button.connect("clicked", self.cb_edit_dialog)
+		self.cycle_function_selector = gtk.combo_box_new_text()
+		for label in self.cycling_functions:
+			self.cycle_function_selector.append_text( " ".join(label[0].split(" ")[:-1]) )
+		lil_hbox.pack_start( self.cycle_function_selector, False, False)
+		self.cycle_function_selector.connect("changed", self.cb_cycles_changed)
+#		self.cycle_function_selector.set_no_show_all(True)
+
+		self.edit_keystrokes_button = gtk.Button("Edit...")
+		lil_hbox.pack_start( self.edit_keystrokes_button, False, False)
+		self.edit_keystrokes_button.connect("clicked", self.cb_edit_dialog)
 
 
 
 		ts = gtk.ListStore(str, str, bool, bool)
-		for s in self.pedal_identifiers:
+		for s in self.PEDAL_LABELS:
 			ts.append( [s, "", False, True] )
 		self.pedalpress_treeview = gtk.TreeView( ts )
 		self.pedalpress_treeview.set_tooltip_text("Pedal status")
@@ -207,7 +450,7 @@ class FootpedalServer(gtk.Window):
 				cell = gtk.CellRendererToggle()
 				tvcolumn = gtk.TreeViewColumn(new_col_label, cell, active=i)
 
-				if i==3:
+				if i==self.TREESTORE_COLUMN_PEDAL_ENABLED:
 					cell.connect("toggled", self.cb_cell_toggle)
 
 			tvcolumn.set_expand(True)
@@ -216,34 +459,53 @@ class FootpedalServer(gtk.Window):
 		vbox.pack_start(self.pedalpress_treeview, False, False)
 
 
+		self.enable_sustained_keypresses = gtk.CheckButton("Enable sustained keypresses")
+#		self.enable_sustained_keypresses.set_active(True)
+#		vbox.pack_start( self.enable_sustained_keypresses, False, False)	# XXX This turned out to be not very useful
 
 		self.add(vbox)
-
 		vbox.show_all()
 
 
 		self.my_status_icon = gtk.StatusIcon()
 		self.my_status_icon.set_tooltip("Footswitch")
-
 		self.my_status_icon.connect("activate", self.toggle_window)
 		self.my_status_icon.connect("popup-menu", self.systray_popup_callback)
-
 		self.set_icon_from_file( self.icon_path )
+
 		self.set_title("Foot Pedal Configuration")
 
+	# ---------------------------------------------------------------------
 
-		self.set_foot(False)
-		self.pedal_function_selector.set_active(1)
+	def cb_toggle_cycling_functions(self, checkbox):
 
-	# -------------------------------------------
+		if checkbox.get_active():
+
+			self.cycle_function_selector.show()
+			self.pedal_function_selector.hide()
+
+			self.updateTreeviewForCyclingFunctions()
+			self.edit_keystrokes_button.set_sensitive(False)
+
+
+		else:
+			self.cycle_function_selector.hide()
+			self.pedal_function_selector.show()
+
+			self.cb_functions_changed(self.pedal_function_selector)
+			self.edit_keystrokes_button.set_sensitive(True)
+
+	# ---------------------------------------------------------------------
+
 	def cb_cell_toggle(self, cellrenderertoggle, path):
 
 		treestore = self.pedalpress_treeview.get_model()
 		my_iter = treestore.get_iter(path)
-		old = treestore.get_value(my_iter, 3)
-		treestore.set_value(my_iter, 3, not old)
+		old = treestore.get_value(my_iter, self.TREESTORE_COLUMN_PEDAL_ENABLED)
+		treestore.set_value(my_iter, self.TREESTORE_COLUMN_PEDAL_ENABLED, not old)
 
-	# -------------------------------------------
+	# ---------------------------------------------------------------------
+
 	def cb_dialog_close(self, dialog):
 
 		# FIXME: This never gets called.
@@ -252,10 +514,11 @@ class FootpedalServer(gtk.Window):
 
 		return True
 
-	# -------------------------------------------
+	# ---------------------------------------------------------------------
+
 	def cb_edit_dialog(self, widget):
 
-		d = gtk.Dialog("My dialog",
+		d = gtk.Dialog("Edit keys",
                      self,
                      gtk.DIALOG_MODAL | gtk.DIALOG_DESTROY_WITH_PARENT,
                      (gtk.STOCK_CANCEL, gtk.RESPONSE_REJECT,
@@ -266,29 +529,23 @@ class FootpedalServer(gtk.Window):
 
 
 
-		function_group = self.pedal_function_selector.get_active()
+		pedal_function_group_index = self.pedal_function_selector.get_active()
 
 		ts = gtk.ListStore(str, str, str)
-
-
-		if function_group < len(self.pedal_function_groups):
+		if pedal_function_group_index < len(self.pedal_function_groups):
 			for i in range(3):
-				ts.append( 
-					[
-						self.pedal_identifiers[i],
-						self.pedal_function_groups[function_group][i],
-						self.command_matrix[function_group][i]
-					]
-				)
+				ts.append([
+					self.PEDAL_LABELS[i],
+					self.pedal_function_groups[pedal_function_group_index][i],
+					self.command_matrix[pedal_function_group_index][i].KEY
+				])
 		else:
 			for i in range(3):
-				ts.append( 
-					[
-						self.pedal_identifiers[i],
-						"Command "+`i`,
-						""
-					]
-				)
+				ts.append([
+					self.PEDAL_LABELS[i],
+					"Command "+`i`,
+					""
+				])
 
 		tv = gtk.TreeView( ts )
 		tv.set_tooltip_text("Pedal status")
@@ -300,7 +557,7 @@ class FootpedalServer(gtk.Window):
 
 			
 			tvcolumn = gtk.TreeViewColumn(new_col_label, cell, text=i)
-			if i:
+			if i > 0:
 				cell.set_property('editable', True)
 
 
@@ -318,37 +575,58 @@ class FootpedalServer(gtk.Window):
 
 		d.destroy()
 
-	# -------------------------------------------
+	# ---------------------------------------------------------------------
+
+	def updateTreeviewForCyclingFunctions(self):
+
+		treestore = self.pedalpress_treeview.get_model()
+		toplevel_iter = treestore.get_iter_first()
+
+		for value in ["Backward", "Cycle functions", "Forward"]:
+			treestore.set_value(toplevel_iter, self.TREESTORE_COLUMN_FUNCTION_NAME, value)
+			toplevel_iter = treestore.iter_next(toplevel_iter)
+
+	# ---------------------------------------------------------------------
+
+	def cb_cycles_changed(self, widget):
+		cycle_function_group_index = widget.get_active()
+		# Does nothing
+
+	# ---------------------------------------------------------------------
+
 	def cb_functions_changed(self, widget):
 		
-		function_group = widget.get_active()
-		if function_group == len(widget.get_model()) - 1:
+		pedal_function_group_index = widget.get_active()
+		if pedal_function_group_index == len(widget.get_model()) - 1:
 			self.cb_edit_dialog(widget)
 			return
 
 		treestore = self.pedalpress_treeview.get_model()
 		toplevel_iter = treestore.get_iter_first()
 
-		labels = self.pedal_function_groups[function_group]
+		labels = self.pedal_function_groups[pedal_function_group_index]
 
 		for value in labels:
-			treestore.set_value(toplevel_iter, 1, value)
+			treestore.set_value(toplevel_iter, self.TREESTORE_COLUMN_FUNCTION_NAME, value)
 			toplevel_iter = treestore.iter_next(toplevel_iter)
 
-	# -----------------------------
+	# ---------------------------------------------------------------------
+
 	def show_preferences_dialog(self, widget):
 
 		self.hidden_window = True
 		self.toggle_window(widget)
 
-	# -----------------------------
+	# ---------------------------------------------------------------------
+
 	def cb_menuitem_activate(self, menuitem, idx):
 
 		self.pedal_function_selector.set_active(idx)
 
 		return False
 
-	# -----------------------------
+	# ---------------------------------------------------------------------
+
 	def build_menu(self):
 		menu = gtk.Menu()
 
@@ -363,8 +641,6 @@ class FootpedalServer(gtk.Window):
 			command_submenu.append( grp )
 
 #		grp.set_active(True)
-
-
 
 
 
@@ -383,12 +659,14 @@ class FootpedalServer(gtk.Window):
 		menu.show_all()
 		return menu
 
-	# -----------------------------
+	# ---------------------------------------------------------------------
+
 	def systray_popup_callback(self, status_icon, button, activate_time):
 		my_popup_menu = self.build_menu()
 		my_popup_menu.popup(None, None, None, button, activate_time, data=None)
 
-	# -----------------------------
+	# ---------------------------------------------------------------------
+
 	def toggle_window(self, status_icon):
 		if self.hidden_window:
 			self.show()
@@ -397,14 +675,16 @@ class FootpedalServer(gtk.Window):
 			self.hide()
 			self.hidden_window = True
 
-	# -------------------------------------------
-	def set_foot(self, down):
+	# ---------------------------------------------------------------------
+
+	def set_foot_position_icon(self, down):
 
 		from os import path
-		icon_path = path.join(self.img_directory, self.feet_images[down])
+		icon_path = path.join(self.img_directory, self.FOOT_IMAGES[down])
 		self.my_status_icon.set_from_file( icon_path )
 
-	# -------------------------------------------
+	# ---------------------------------------------------------------------
+
 	def delete_event(self, widget, event, data=None):
 
 		self.hidden_window = False
@@ -414,19 +694,26 @@ class FootpedalServer(gtk.Window):
 
 #		return False
 
-	# -------------------------------------------
+	# ---------------------------------------------------------------------
+
 	def destroy(self, widget, data=None):
 		print "destroy signal occurred"
 		gtk.main_quit()
 
-
-# =========================
-
+# =============================================================================
 if __name__ == "__main__":
+
+	from optparse import OptionParser
+	usage = "usage: %prog [options]"
+	parser = OptionParser(usage)
+	parser.add_option("-d", action="store_false", default=True, dest="installed", help="Run for development")
+	parser.add_option("-s", action="store_true", default=False, dest="showpanel", help="Start with panel shown")	# FIXME
+	(options, args) = parser.parse_args()
+
 
 	gobject.threads_init()
 
-	fs = FootpedalServer(True)
+	fs = FootpedalAppWindow(options.installed, options.showpanel)
 	server_thread = ServerThread(fs)
 	server_thread.start()
 
