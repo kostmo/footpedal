@@ -49,7 +49,7 @@ if __name__=="__main__":
 			mystring = hidfile.read(WORD_LENGTH)
 		except:
 			import time
-			time.sleep(0.1)
+			time.sleep(0.05)
 			continue
 
 

@@ -3,7 +3,7 @@ Section: utils
 Priority: optional
 Maintainer: Ubuntu MOTU Developers <ubuntu-motu@lists.ubuntu.com>
 XSBC-Original-Maintainer: Karl Ostmo <kostmo@gmail.com>
-Standards-Version: 3.8.1
+Standards-Version: 3.9.1
 Build-Depends: debhelper (>= 5), python, cdbs (>= 0.4.49)
 Build-Depends-Indep: perl, python-support (>= 0.5.3)
 XB-Python-Version: ${python:Versions}
@@ -14,7 +14,7 @@ Architecture: all
 Depends: ${misc:Depends}, ${python:Depends}, python-gtk2, xautomation, python-notify
 Breaks: udev (<< 136-1)
 Description: USB foot pedal integration for Gnome desktops
- footpedal acts as a "pseduo-driver" for the USB foot pedal for
- transcriptionists by VEC. It lets you assign arbitrary keystrokes to the left,
+ footpedal acts as a "pseduo-driver" for the USB transcription foot pedals
+ produced by VEC. It lets you assign arbitrary keystrokes to the left,
  middle, and right pedal. It might also work with a home-built USB foot pedal. 
 
