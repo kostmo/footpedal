@@ -12,7 +12,7 @@ middle, and right pedal. It might also work with a home-built USB foot pedal."""
 		author="Karl Ostmo",
 		author_email="kostmo@gmail.com",
 		url="http://footpedal.googlecode.com/",
-		version="0.3",
+		version="0.4",
 		scripts=["footpedal"],
 		data_files=[("share/footpedal", ["foot_up.png", "foot_down.png", "footpedal.png"])]
 	)

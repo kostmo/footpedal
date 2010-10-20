@@ -135,13 +135,14 @@ class ServerThread(threading.Thread):
 	# ---------------------------------------------------------------------
 
 	def error_dialog_dismiss_callback(self, dialog, response_id):
-		print "Exiting..."
+		print("Exiting...")
 		exit(1)
 
 	# ---------------------------------------------------------------------
 
 	def run(self):
 
+		hidfile = None
 		try:
 			hidfile = open(self.HID_DEVICE_PATH)
 		except IOError:
@@ -149,7 +150,7 @@ class ServerThread(threading.Thread):
 			msg = "You need permission to access the device. Try entering the following command:\n"
 			msg += "sudo chmod a+r " + self.HID_DEVICE_PATH
 
-			print msg
+			print(msg)
 
 			gtk.gdk.threads_enter()
 			dialog = gtk.MessageDialog(parent=self.app_window, flags=0, buttons=gtk.BUTTONS_CLOSE, type=gtk.MESSAGE_ERROR,
@@ -157,18 +158,41 @@ class ServerThread(threading.Thread):
 			dialog.connect("response", self.error_dialog_dismiss_callback)
 			dialog.format_secondary_text(msg)
 			dialog.show()
+			gtk.gdk.threads_leave()
 			return
 
+
+		# Trick adopted from http://stackoverflow.com/questions/375427/non-blocking-read-on-a-stream-in-python/1810703#1810703
+		# makes a non-blocking file
+		import fcntl, os
+		fd = hidfile.fileno()
+		fl = fcntl.fcntl(fd, fcntl.F_GETFL)
+		fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
+
+
+		count = 0
 		# Keep reading the character device
 		while not self.stopthread.isSet():
-			pedal_byte_values = map(ord, hidfile.read(self.WORD_LENGTH))
-#			print "Numeric representation of string:", pedal_byte_values
+
+			try:
+				mystring = hidfile.read(self.WORD_LENGTH)
+			except:
+				import time
+				time.sleep(0.1)
+				continue
+
+			pedal_byte_values = map(ord, mystring)
+#			print("Numeric representation of string:", pedal_byte_values)
+
 
 			# Split message into signals for each pedal
 			pedal_signals = [pedal_byte_values[self.GROUP_SIZE*i:self.GROUP_SIZE*(i+1)] for i in range(self.PEDAL_COUNT)]
 			raw_current_pedal_state = [bool(signal[self.DEPRESSED_BYTE_INDEX]) for signal in pedal_signals]
 
+			# Queue an action to be performed in the main thread.
 			gobject.idle_add(self.handle_pedal_press, raw_current_pedal_state)
+
+			count += 1
 
 		hidfile.close()
 
@@ -177,7 +201,7 @@ class ServerThread(threading.Thread):
 	def handle_pedal_press(self, raw_current_pedal_state):
 		"""We interact with the UI in this function, so it must happen in the UI thread via idle_add()"""
 
-#		print "Current state:", raw_current_pedal_state, "Previous state:", self.raw_previous_pedal_state
+#		print("Current state:", raw_current_pedal_state, "Previous state:", self.raw_previous_pedal_state)
 		self.app_window.set_foot_position_icon( any(raw_current_pedal_state) )
 
 		# Update treeview and read "disabled" status
@@ -224,7 +248,7 @@ class ServerThread(threading.Thread):
 					keycombo.press()
 					action_name = self.app_window.pedal_function_groups[pedal_function_group_index][filtered_pedal]
 
-				print action_name
+				print(action_name)
 
 				if self.pynotify_supported:
 					self.reusable_notification.update("Foot pedal function:", action_name)
@@ -281,7 +305,7 @@ class ServerThread(threading.Thread):
 					keycombo.pressDown()
 					action_name = self.app_window.pedal_function_groups[pedal_function_group_index][filtered_pedal]
 
-				print action_name
+				print(action_name)
 
 				if self.pynotify_supported:
 					self.reusable_notification.update("Foot pedal function:", action_name)
@@ -306,7 +330,7 @@ class ServerThread(threading.Thread):
 class FootpedalAppWindow(gtk.Window):
 
 	appname = "footpedal"
-	version = "0.3"
+	version = "0.4"
 	local_share_dir = "/usr/share/"
 
 	icon_filename = appname + ".png"
@@ -395,6 +419,8 @@ class FootpedalAppWindow(gtk.Window):
 		self.cycle_function_selector.set_active(0)
 		self.pedal_function_selector.set_active(1)
 		self.cb_toggle_cycling_functions(self.cycling_functions_checkbox)
+
+		self.server_thread = None	# Will be populated externally
 
 	# ---------------------------------------------------------------------
 
@@ -513,7 +539,7 @@ class FootpedalAppWindow(gtk.Window):
 
 		# FIXME: This never gets called.
 
-		print "Foo"
+		print("Foo")
 
 		return True
 
@@ -546,7 +572,7 @@ class FootpedalAppWindow(gtk.Window):
 			for i in range(3):
 				ts.append([
 					self.PEDAL_LABELS[i],
-					"Command "+`i`,
+					"Command "+str(i),
 					""
 				])
 
@@ -655,6 +681,10 @@ class FootpedalAppWindow(gtk.Window):
 		temp_item.connect("activate", self.show_preferences_dialog)
 		menu.append(temp_item)
 
+#		temp_item = gtk.MenuItem("Reset pedal")
+#		temp_item.connect("activate", self.reset_pedal)
+#		menu.append(temp_item)
+
 		temp_item = gtk.ImageMenuItem(gtk.STOCK_QUIT)
 		temp_item.connect("activate", self.destroy)
 		menu.append(temp_item)
@@ -697,11 +727,25 @@ class FootpedalAppWindow(gtk.Window):
 
 #		return False
 
-	# ---------------------------------------------------------------------
 
+	# ---------------------------------------------------------------------
+	def reset_pedal(self, widget, data=None):
+		print("Trying to reset pedal...")
+		self.server_thread.stop()
+		self.startServerThread(widget, data)
+
+	# ---------------------------------------------------------------------
 	def destroy(self, widget, data=None):
-		print "destroy signal occurred"
+
+		self.server_thread.stop()
+		print("destroy signal occurred")
 		gtk.main_quit()
+
+	# ---------------------------------------------------------------------
+	def startServerThread(self, widget, data=None):
+
+		self.server_thread = ServerThread(self)
+		self.server_thread.start()
 
 # =============================================================================
 if __name__ == "__main__":
@@ -717,12 +761,12 @@ if __name__ == "__main__":
 	gobject.threads_init()
 
 	fs = FootpedalAppWindow(options.installed, options.showpanel)
-	server_thread = ServerThread(fs)
-	server_thread.start()
+	fs.startServerThread(None)
+
+
 
 	gtk.main()
 
-	print "Shutting down..."
+	print("Shutting down...")
 
-	server_thread.stop()
 
