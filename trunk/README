@@ -1,0 +1,14 @@
+To use these scripts, you should install the following programs first:
+debhelper cdbs gdebi
+
+=============================================
+The important scripts in this directory:
+
+make_binary_package.sh
+	for producing a .deb package for use on your own system
+
+make_source_package.sh
+	for producing a .deb source package to submit to the Ubuntu repos
+
+clean_source_package.sh
+	Gets rid of the crud produced by the other two scripts

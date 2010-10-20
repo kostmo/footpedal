@@ -1,5 +1,6 @@
-footpedal (0.3-0ubuntu1) lucid; urgency=low
+footpedal (0.4-0ubuntu1) maverick; urgency=low
 
   * Initial Ubuntu package
+  * Fixed Issue 2: Freeze on rapid presses
 
- -- Karl Ostmo <kostmo@gmail.com>  Mon, 11 May 2009 01:10:31 -0400
+ -- Karl Ostmo <kostmo@gmail.com>  Wed, 20 Oct 2010 16:06:49 -0500

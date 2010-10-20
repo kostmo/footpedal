@@ -178,7 +178,7 @@ class ServerThread(threading.Thread):
 				mystring = hidfile.read(self.WORD_LENGTH)
 			except:
 				import time
-				time.sleep(0.1)
+				time.sleep(0.05)
 				continue
 
 			pedal_byte_values = map(ord, mystring)
