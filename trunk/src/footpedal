@@ -330,7 +330,7 @@ class ServerThread(threading.Thread):
 class FootpedalAppWindow(gtk.Window):
 
 	appname = "footpedal"
-	version = "0.4"
+	version = "0.5"
 	local_share_dir = "/usr/share/"
 
 	icon_filename = appname + ".png"
@@ -345,10 +345,25 @@ class FootpedalAppWindow(gtk.Window):
 	WINDOW_PADDING = 5
 
 	# ---------------------------------------------------------------------
+	import os
+	AUTOSTART_BASEPATH = os.path.expanduser("~/.config/autostart")
+	APPLICATIONS_MENU_BASEPATH = os.path.abspath("/usr/share/applications")
+	DESKTOP_ICON_NAME = "footpedal.desktop"
+	STARTUP_LINK_PATH = os.path.join(AUTOSTART_BASEPATH, DESKTOP_ICON_NAME)
+	STARTUP_LINK_TARGET = os.path.join(APPLICATIONS_MENU_BASEPATH, DESKTOP_ICON_NAME)
+
+	def toggle_startup_launcher(self, widget):
+		if widget.get_active():
+			if not os.path.islink(self.STARTUP_LINK_PATH):
+				os.symlink(self.STARTUP_LINK_TARGET, self.STARTUP_LINK_PATH)
+		else:
+			if os.path.islink(self.STARTUP_LINK_PATH):
+				os.remove(self.STARTUP_LINK_PATH)
+
+	# ---------------------------------------------------------------------
 
 	def __init__(self, run_installed=True, show_panel=False):
 		gtk.Window.__init__(self)
-
 
 		self.run_installed = run_installed
 		if run_installed:
@@ -428,6 +443,11 @@ class FootpedalAppWindow(gtk.Window):
 
 		vbox = gtk.VBox(False, self.WINDOW_PADDING)
 
+
+		button = gtk.CheckButton("Launch on startup")
+		button.set_active(os.path.islink(self.STARTUP_LINK_PATH))
+		button.connect("toggled", self.toggle_startup_launcher)
+		vbox.pack_start(button, False, False)
 
 		self.cycling_functions_checkbox = gtk.CheckButton("Use cycling functions")
 		self.cycling_functions_checkbox.connect("toggled", self.cb_toggle_cycling_functions)
