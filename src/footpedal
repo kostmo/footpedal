@@ -95,7 +95,7 @@ class ServerThread(threading.Thread):
 	is the pedal index, followed by [Y, 0, 0, 0], where Y is either
 	1 or 0 (pressed or not pressed)."""
 
-	HID_DEVICE_PATH = "/dev/usb/hiddev0"
+	HID_DEVICE_PATH_TEMPLATE = "/dev/usb/hiddev%d"
 	PEDAL_COUNT = 3
 	GROUP_SIZE = 8
 	DEPRESSED_BYTE_INDEX = 4
@@ -107,8 +107,10 @@ class ServerThread(threading.Thread):
 
 	# ---------------------------------------------------------------------
 
-	def __init__(self, app_window):
+	def __init__(self, app_window, hid_device_index):
 		threading.Thread.__init__(self)
+
+		self.HID_DEVICE_PATH_TEMPLATE = self.HID_DEVICE_PATH_TEMPLATE % (hid_device_index)
 
 		self.setDaemon(True)	# Runs in daemon mode; will stop when program is closed
 		self.app_window = app_window	# Maintain a reference to the GUI
@@ -144,11 +146,11 @@ class ServerThread(threading.Thread):
 
 		hidfile = None
 		try:
-			hidfile = open(self.HID_DEVICE_PATH)
+			hidfile = open(self.HID_DEVICE_PATH_TEMPLATE)
 		except IOError:
 
 			msg = "You need permission to access the device. Try entering the following command:\n"
-			msg += "sudo chmod a+r " + self.HID_DEVICE_PATH
+			msg += "sudo chmod a+r " + self.HID_DEVICE_PATH_TEMPLATE
 
 			print(msg)
 
@@ -362,8 +364,10 @@ class FootpedalAppWindow(gtk.Window):
 
 	# ---------------------------------------------------------------------
 
-	def __init__(self, run_installed=True, show_panel=False):
+	def __init__(self, run_installed=True, show_panel=False, hid_device_index=0):
 		gtk.Window.__init__(self)
+
+		self.hid_device_index = hid_device_index
 
 		self.run_installed = run_installed
 		if run_installed:
@@ -764,7 +768,7 @@ class FootpedalAppWindow(gtk.Window):
 	# ---------------------------------------------------------------------
 	def startServerThread(self, widget, data=None):
 
-		self.server_thread = ServerThread(self)
+		self.server_thread = ServerThread(self, self.hid_device_index)
 		self.server_thread.start()
 
 # =============================================================================
@@ -775,12 +779,14 @@ if __name__ == "__main__":
 	parser = OptionParser(usage)
 	parser.add_option("-d", action="store_false", default=True, dest="installed", help="Run for development")
 	parser.add_option("-s", action="store_true", default=False, dest="showpanel", help="Start with panel shown")	# FIXME
+	parser.add_option("-n", default=0, type=int, dest="device_index", help="HID device index")
 	(options, args) = parser.parse_args()
 
 
 	gobject.threads_init()
 
-	fs = FootpedalAppWindow(options.installed, options.showpanel)
+
+	fs = FootpedalAppWindow(options.installed, options.showpanel, options.device_index)
 	fs.startServerThread(None)
 
 
