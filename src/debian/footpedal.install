@@ -1,2 +1,3 @@
+40-footpedal.rules		         /lib/udev/rules.d
 debian/footpedal.desktop		usr/share/applications
 footpedal.png					usr/share/pixmaps
