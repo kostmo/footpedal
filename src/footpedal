@@ -16,7 +16,6 @@ class KeyCombo:
 	KEYNAME_ALT = "Alt_L"
 
 	# ---------------------------------------------------------------------
-
 	def __init__(self, key, modifiers=[]):
 		self.key = key
 		self.modifiers = modifiers
@@ -24,12 +23,10 @@ class KeyCombo:
 		self.held_keys = []
 
 	# ---------------------------------------------------------------------
-
 	def press(self):
 		self.keypressWithModifiers(self.key, self.modifiers)
 
 	# ---------------------------------------------------------------------
-
 	def pressDown(self):
 		for k in self.modifiers:
 			self.keydown(k)
@@ -44,7 +41,6 @@ class KeyCombo:
 		self.held_keys.reverse()
 
 	# ---------------------------------------------------------------------
-
 	def releaseHeldKeys(self):
 		for k in self.held_keys:
 			self.keyup(k)
@@ -52,7 +48,6 @@ class KeyCombo:
 		self.held_keys = []
 
 	# ---------------------------------------------------------------------
-
 	def keypressWithModifiers(self, key, modifiers=[]):
 		"""Wraps a keypress with key modifiers, recursively"""
 
@@ -65,22 +60,18 @@ class KeyCombo:
 			self.keyinstantaneous(key)
 
 	# ---------------------------------------------------------------------
-
 	def keyinstantaneous(self, key):
 		self.xteCommand("key", key)
 
 	# ---------------------------------------------------------------------
-
 	def keydown(self, key):
 		self.xteCommand("keydown", key)
 
 	# ---------------------------------------------------------------------
-
 	def keyup(self, key):
 		self.xteCommand("keyup", key)
 
 	# ---------------------------------------------------------------------
-
 	def xteCommand(self, command, key):
 		os.system( 'xte "' + command + ' ' + key + '"' )
 
@@ -106,11 +97,10 @@ class ServerThread(threading.Thread):
 	stopthread = threading.Event()
 
 	# ---------------------------------------------------------------------
-
 	def __init__(self, app_window, hid_device_index):
 		threading.Thread.__init__(self)
 
-		self.HID_DEVICE_PATH_TEMPLATE = self.HID_DEVICE_PATH_TEMPLATE % (hid_device_index)
+		self.resetting = False
 
 		self.setDaemon(True)	# Runs in daemon mode; will stop when program is closed
 		self.app_window = app_window	# Maintain a reference to the GUI
@@ -135,34 +125,34 @@ class ServerThread(threading.Thread):
 		self.held_key_combos = [[] for i in range(self.PEDAL_COUNT)]
 
 	# ---------------------------------------------------------------------
-
 	def error_dialog_dismiss_callback(self, dialog, response_id):
 		print("Exiting...")
 		exit(1)
 
 	# ---------------------------------------------------------------------
+	def open_device(self):
 
-	def run(self):
+		hid_device_path = self.HID_DEVICE_PATH_TEMPLATE % (self.app_window.hid_device_index)
 
 		hidfile = None
 		try:
-			hidfile = open(self.HID_DEVICE_PATH_TEMPLATE)
+			hidfile = open(hid_device_path, "r")
 		except IOError:
 
 			msg = "You need permission to access the device. Try entering the following command:\n"
-			msg += "sudo chmod a+r " + self.HID_DEVICE_PATH_TEMPLATE
+			msg += "sudo chmod a+r " + hid_device_path
 
 			print(msg)
 
 			gtk.gdk.threads_enter()
-			dialog = gtk.MessageDialog(parent=self.app_window, flags=0, buttons=gtk.BUTTONS_CLOSE, type=gtk.MESSAGE_ERROR,
+			dialog = gtk.MessageDialog(parent=self.app_window, flags=0,
+				buttons=gtk.BUTTONS_CLOSE, type=gtk.MESSAGE_ERROR,
 				message_format="Permission lacking")
 			dialog.connect("response", self.error_dialog_dismiss_callback)
 			dialog.format_secondary_text(msg)
 			dialog.show()
 			gtk.gdk.threads_leave()
-			return
-
+			return None
 
 		# Trick adopted from http://stackoverflow.com/questions/375427/non-blocking-read-on-a-stream-in-python/1810703#1810703
 		# makes a non-blocking file
@@ -171,35 +161,59 @@ class ServerThread(threading.Thread):
 		fl = fcntl.fcntl(fd, fcntl.F_GETFL)
 		fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
-
-		count = 0
-		# Keep reading the character device
-		while not self.stopthread.isSet():
-
-			try:
-				mystring = hidfile.read(self.WORD_LENGTH)
-			except:
-				import time
-				time.sleep(0.05)
-				continue
-
-			pedal_byte_values = map(ord, mystring)
-#			print("Numeric representation of string:", pedal_byte_values)
-
-
-			# Split message into signals for each pedal
-			pedal_signals = [pedal_byte_values[self.GROUP_SIZE*i:self.GROUP_SIZE*(i+1)] for i in range(self.PEDAL_COUNT)]
-			raw_current_pedal_state = [bool(signal[self.DEPRESSED_BYTE_INDEX]) for signal in pedal_signals]
-
-			# Queue an action to be performed in the main thread.
-			gobject.idle_add(self.handle_pedal_press, raw_current_pedal_state)
-
-			count += 1
-
-		hidfile.close()
+		return hidfile
 
 	# ---------------------------------------------------------------------
+	def run(self):
 
+		# Allows the device to be changed
+		while True:
+			print "In the device selection loop..."
+
+			self.resetting = False
+
+
+			self.hidfile = self.open_device()
+			if not self.hidfile:
+				return
+
+			count = 0
+			# Keep reading the character device
+			while True:
+
+				try:
+					mystring = self.hidfile.read(self.WORD_LENGTH)
+
+				except:
+
+					if self.stopthread.isSet():
+						break
+
+					import time
+					time.sleep(0.05)
+					continue
+
+				pedal_byte_values = map(ord, mystring)
+	#			print("Numeric representation of string:", pedal_byte_values)
+
+
+				# Split message into signals for each pedal
+				pedal_signals = [pedal_byte_values[self.GROUP_SIZE*i:self.GROUP_SIZE*(i+1)] for i in range(self.PEDAL_COUNT)]
+				raw_current_pedal_state = [bool(signal[self.DEPRESSED_BYTE_INDEX]) for signal in pedal_signals]
+
+				# Queue an action to be performed in the main thread.
+				gobject.idle_add(self.handle_pedal_press, raw_current_pedal_state)
+
+				count += 1
+
+			self.hidfile.close()
+
+			if not self.resetting:
+				break
+			else:
+				self.stopthread.clear()
+
+	# ---------------------------------------------------------------------
 	def handle_pedal_press(self, raw_current_pedal_state):
 		"""We interact with the UI in this function, so it must happen in the UI thread via idle_add()"""
 
@@ -223,7 +237,6 @@ class ServerThread(threading.Thread):
 		self.raw_previous_pedal_state = raw_current_pedal_state
 
 	# ---------------------------------------------------------------------
-
 	def handle_instantaneous_pedal_press(self, raw_current_pedal_state, pedals_enabled):
 
 		# Only perform an action if all of the pedals were in the "up" position first.
@@ -257,7 +270,6 @@ class ServerThread(threading.Thread):
 					self.reusable_notification.show()
 
 	# ---------------------------------------------------------------------
-
 	# XXX This function turned out to be not very useful.
 	# The Compiz application switcher requires the ALT key to be held down
 	# while navigating through the applications with the left and right arrows.
@@ -323,11 +335,6 @@ class ServerThread(threading.Thread):
 
 		return filtered_pedal
 
-	# ---------------------------------------------------------------------
-
-	def stop(self):
-		self.stopthread.set()
-
 # =============================================================================
 class FootpedalAppWindow(gtk.Window):
 
@@ -363,7 +370,6 @@ class FootpedalAppWindow(gtk.Window):
 				os.remove(self.STARTUP_LINK_PATH)
 
 	# ---------------------------------------------------------------------
-
 	def __init__(self, run_installed=True, show_panel=False, hid_device_index=0):
 		gtk.Window.__init__(self)
 
@@ -395,8 +401,6 @@ class FootpedalAppWindow(gtk.Window):
 			[KeyCombo("XF86AudioPrev"), KeyCombo("XF86AudioPlay"), KeyCombo("XF86AudioNext")],
 			[KeyCombo("Home"), KeyCombo("Down"), KeyCombo("Page_Down")]
 		]
-
-
 
 		self.cycling_functions = [
 			["Cycle Desktops left", None, "Cycle Desktops right"],
@@ -442,7 +446,11 @@ class FootpedalAppWindow(gtk.Window):
 		self.server_thread = None	# Will be populated externally
 
 	# ---------------------------------------------------------------------
+	def cb_select_device(self, spinbutton, data=None):
+		self.hid_device_index = spinbutton.get_value_as_int()
+		self.reset_pedal(spinbutton, data=None)
 
+	# ---------------------------------------------------------------------
 	def populateUserInterface(self):
 
 		vbox = gtk.VBox(False, self.WINDOW_PADDING)
@@ -452,6 +460,19 @@ class FootpedalAppWindow(gtk.Window):
 		button.set_active(os.path.islink(self.STARTUP_LINK_PATH))
 		button.connect("toggled", self.toggle_startup_launcher)
 		vbox.pack_start(button, False, False)
+
+
+       
+		control_hbox = gtk.HBox(False, self.WINDOW_PADDING)
+		vbox.pack_start(control_hbox, False, False)
+		control_hbox.pack_start(gtk.Label("Launcher ID:"), False, False)
+
+		myadj = gtk.Adjustment(self.hid_device_index, 0, 15, 1)
+		device_selector_spinbutton = gtk.SpinButton(myadj, 0, 0)
+		device_selector_spinbutton.set_numeric(True)
+		device_selector_spinbutton.connect("value-changed", self.cb_select_device)
+		control_hbox.pack_start(device_selector_spinbutton, False, False)
+
 
 		self.cycling_functions_checkbox = gtk.CheckButton("Use cycling functions")
 		self.cycling_functions_checkbox.connect("toggled", self.cb_toggle_cycling_functions)
@@ -529,7 +550,6 @@ class FootpedalAppWindow(gtk.Window):
 		self.set_title("Foot Pedal Configuration")
 
 	# ---------------------------------------------------------------------
-
 	def cb_toggle_cycling_functions(self, checkbox):
 
 		if checkbox.get_active():
@@ -549,7 +569,6 @@ class FootpedalAppWindow(gtk.Window):
 			self.edit_keystrokes_button.set_sensitive(True)
 
 	# ---------------------------------------------------------------------
-
 	def cb_cell_toggle(self, cellrenderertoggle, path):
 
 		treestore = self.pedalpress_treeview.get_model()
@@ -558,7 +577,6 @@ class FootpedalAppWindow(gtk.Window):
 		treestore.set_value(my_iter, self.TREESTORE_COLUMN_PEDAL_ENABLED, not old)
 
 	# ---------------------------------------------------------------------
-
 	def cb_dialog_close(self, dialog):
 
 		# FIXME: This never gets called.
@@ -568,7 +586,6 @@ class FootpedalAppWindow(gtk.Window):
 		return True
 
 	# ---------------------------------------------------------------------
-
 	def cb_edit_dialog(self, widget):
 
 		d = gtk.Dialog("Edit keys",
@@ -629,7 +646,6 @@ class FootpedalAppWindow(gtk.Window):
 		d.destroy()
 
 	# ---------------------------------------------------------------------
-
 	def updateTreeviewForCyclingFunctions(self):
 
 		treestore = self.pedalpress_treeview.get_model()
@@ -640,13 +656,11 @@ class FootpedalAppWindow(gtk.Window):
 			toplevel_iter = treestore.iter_next(toplevel_iter)
 
 	# ---------------------------------------------------------------------
-
 	def cb_cycles_changed(self, widget):
 		cycle_function_group_index = widget.get_active()
 		# Does nothing
 
 	# ---------------------------------------------------------------------
-
 	def cb_functions_changed(self, widget):
 		
 		pedal_function_group_index = widget.get_active()
@@ -664,14 +678,12 @@ class FootpedalAppWindow(gtk.Window):
 			toplevel_iter = treestore.iter_next(toplevel_iter)
 
 	# ---------------------------------------------------------------------
-
 	def show_preferences_dialog(self, widget):
 
 		self.hidden_window = True
 		self.toggle_window(widget)
 
 	# ---------------------------------------------------------------------
-
 	def cb_menuitem_activate(self, menuitem, idx):
 
 		self.pedal_function_selector.set_active(idx)
@@ -679,7 +691,6 @@ class FootpedalAppWindow(gtk.Window):
 		return False
 
 	# ---------------------------------------------------------------------
-
 	def build_menu(self):
 		menu = gtk.Menu()
 
@@ -694,8 +705,6 @@ class FootpedalAppWindow(gtk.Window):
 			command_submenu.append( grp )
 
 #		grp.set_active(True)
-
-
 
 		temp_item = gtk.MenuItem("Command set")
 		temp_item.set_submenu( command_submenu )
@@ -717,13 +726,11 @@ class FootpedalAppWindow(gtk.Window):
 		return menu
 
 	# ---------------------------------------------------------------------
-
 	def systray_popup_callback(self, status_icon, button, activate_time):
 		my_popup_menu = self.build_menu()
 		my_popup_menu.popup(None, None, None, button, activate_time, data=None)
 
 	# ---------------------------------------------------------------------
-
 	def toggle_window(self, status_icon):
 		if self.hidden_window:
 			self.show()
@@ -733,7 +740,6 @@ class FootpedalAppWindow(gtk.Window):
 			self.hidden_window = True
 
 	# ---------------------------------------------------------------------
-
 	def set_foot_position_icon(self, down):
 
 		from os import path
@@ -741,27 +747,27 @@ class FootpedalAppWindow(gtk.Window):
 		self.my_status_icon.set_from_file( icon_path )
 
 	# ---------------------------------------------------------------------
-
 	def delete_event(self, widget, event, data=None):
 
 		self.hidden_window = False
 		self.toggle_window(widget)
 
 		return True
-
 #		return False
-
 
 	# ---------------------------------------------------------------------
 	def reset_pedal(self, widget, data=None):
+
+		self.server_thread.resetting = True
+
 		print("Trying to reset pedal...")
-		self.server_thread.stop()
-		self.startServerThread(widget, data)
+		self.server_thread.stopthread.set()
+
 
 	# ---------------------------------------------------------------------
 	def destroy(self, widget, data=None):
 
-		self.server_thread.stop()
+		self.server_thread.stopthread.set()
 		print("destroy signal occurred")
 		gtk.main_quit()
 
@@ -782,17 +788,12 @@ if __name__ == "__main__":
 	parser.add_option("-n", default=0, type=int, dest="device_index", help="HID device index")
 	(options, args) = parser.parse_args()
 
-
 	gobject.threads_init()
-
 
 	fs = FootpedalAppWindow(options.installed, options.showpanel, options.device_index)
 	fs.startServerThread(None)
 
-
-
 	gtk.main()
 
 	print("Shutting down...")
-
 
