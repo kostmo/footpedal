@@ -73,7 +73,10 @@ class KeyCombo:
 
 	# ---------------------------------------------------------------------
 	def xteCommand(self, command, key):
-		os.system( 'xte "' + command + ' ' + key + '"' )
+		args_list = ["xte", "\"" + command + " " + key + "\""]
+		command = " ".join(args_list)
+		print "About to execute:", command
+		os.system( command )
 
 # =============================================================================
 class ServerThread(threading.Thread):
