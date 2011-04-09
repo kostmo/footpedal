@@ -105,7 +105,6 @@ class ServerThread(threading.Thread):
 
 		self.resetting = False
 
-		self.setDaemon(True)	# Runs in daemon mode; will stop when program is closed
 		self.app_window = app_window	# Maintain a reference to the GUI
 		self.raw_previous_pedal_state = [0]*self.PEDAL_COUNT	# Initialize pedal positions to zero
 
@@ -133,13 +132,13 @@ class ServerThread(threading.Thread):
 		exit(1)
 
 	# ---------------------------------------------------------------------
-	def open_device(self):
+	def open_device(self, device_index):
 
-		hid_device_path = self.HID_DEVICE_PATH_TEMPLATE % (self.app_window.hid_device_index)
+		hid_device_path = self.HID_DEVICE_PATH_TEMPLATE % (device_index)
 
 		hidfile = None
 		try:
-			hidfile = open(hid_device_path, "r")
+			hidfile = open(hid_device_path)
 		except IOError:
 
 			msg = "You need permission to access the device. Try entering the following command:\n"
@@ -175,7 +174,7 @@ class ServerThread(threading.Thread):
 
 			self.resetting = False
 
-			hidfile = self.open_device()
+			hidfile = self.open_device(self.app_window.hid_device_index)
 			if not hidfile:
 				return
 
@@ -207,6 +206,7 @@ class ServerThread(threading.Thread):
 
 				count += 1
 
+			print("Closing device...")
 			hidfile.close()
 
 			# We may just be choosing a different device.
@@ -214,6 +214,8 @@ class ServerThread(threading.Thread):
 				self.stopthread.clear()
 			else:
 				break				
+
+		print("Finishing thread...")
 
 	# ---------------------------------------------------------------------
 	def handle_pedal_press(self, raw_current_pedal_state):
@@ -339,12 +341,6 @@ class ServerThread(threading.Thread):
 
 		return filtered_pedal
 
-
-# =============================================================================
-class CyclingFunction:
-	def __init__(self, name):
-		pass
-
 # =============================================================================
 class PedalCommand:
 	def __init__(self, name, key_combo):
@@ -404,6 +400,7 @@ class FootpedalAppWindow(gtk.Window):
 
 
 		# These are "default" or "builtin" presets
+		# They are grouped in threes (for 3 pedals)
 		self.pedal_function_groups = [
 			[
 				PedalCommand("Cut", KeyCombo("x", [KeyCombo.KEYNAME_CONTROL])),
@@ -424,7 +421,8 @@ class FootpedalAppWindow(gtk.Window):
 			]
 		]
 
-
+		# Note how the middle pedal has no command; this signifies
+		# that the pedal should be used to cycle among command groupings.
 		self.pedal_cycling_groups = [
 			[
 				PedalCommand("Cycle Desktops left", KeyCombo("Left", [KeyCombo.KEYNAME_CONTROL, KeyCombo.KEYNAME_ALT])),
@@ -715,10 +713,10 @@ class FootpedalAppWindow(gtk.Window):
 		command_submenu = gtk.Menu()
 
 #		grp = None
-		for i, src in enumerate(self.pedal_function_groups):
+		for i, pedal_function_group in enumerate(self.pedal_function_groups):
 
 #			grp = gtk.RadioMenuItem( grp, "/".join(src) )
-			grp = gtk.MenuItem( "/".join(src) )
+			grp = gtk.MenuItem( "/".join([pedal_function.name for pedal_function in pedal_function_group]) )
 			grp.connect("activate", self.cb_menuitem_activate, i)
 			command_submenu.append( grp )
 
