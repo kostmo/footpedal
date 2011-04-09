@@ -256,7 +256,7 @@ class ServerThread(threading.Thread):
 					pedal_function_group_index = self.app_window.cycle_function_selector.get_active()
 					pedal_action = self.app_window.pedal_cycling_groups[pedal_function_group_index][filtered_pedal]
 					if pedal_action:
-						keycombo = pedal_action.key_combo
+						keycombo = pedal_action.action
 						keycombo.press()
 
 					else:
@@ -266,7 +266,7 @@ class ServerThread(threading.Thread):
 				else:
 					pedal_function_group_index = self.app_window.pedal_function_selector.get_active()
 					pedal_action = self.app_window.pedal_function_groups[pedal_function_group_index][filtered_pedal]
-					keycombo = pedal_action.key_combo
+					keycombo = pedal_action.action
 					keycombo.press()
 
 				print(pedal_action.name)
@@ -320,7 +320,7 @@ class ServerThread(threading.Thread):
 						action_name = self.app_window.cycle_function_selector.get_active_text()
 				else:
 					pedal_function_group_index = self.app_window.pedal_function_selector.get_active()
-					keycombo = self.app_window.pedal_function_groups[pedal_function_group_index][filtered_pedal].key_combo
+					keycombo = self.app_window.pedal_function_groups[pedal_function_group_index][filtered_pedal].action
 					self.held_key_combos[filtered_pedal].append(keycombo)
 					keycombo.pressDown()
 					action_name = self.app_window.pedal_function_groups[pedal_function_group_index][filtered_pedal]
@@ -343,9 +343,9 @@ class ServerThread(threading.Thread):
 
 # =============================================================================
 class PedalCommand:
-	def __init__(self, name, key_combo):
+	def __init__(self, name, action):
 		self.name = name
-		self.key_combo = key_combo
+		self.action = action
 
 # =============================================================================
 class FootpedalAppWindow(gtk.Window):
@@ -623,7 +623,7 @@ class FootpedalAppWindow(gtk.Window):
 				ts.append([
 					self.PEDAL_LABELS[i],
 					self.pedal_function_groups[pedal_function_group_index][i].name,
-					self.pedal_function_groups[pedal_function_group_index][i].key_combo.key
+					self.pedal_function_groups[pedal_function_group_index][i].action.key
 				])
 		else:
 			for i in range(3):
