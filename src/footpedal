@@ -168,27 +168,26 @@ class ServerThread(threading.Thread):
 
 	# ---------------------------------------------------------------------
 	def run(self):
+		'''Note that the scope of the HID filehandle exists only within this function.'''
 
-		# Allows the device to be changed
+		# The device selection loop; allows the device to be changed
 		while True:
-			print "In the device selection loop..."
 
 			self.resetting = False
 
-
-			self.hidfile = self.open_device()
-			if not self.hidfile:
+			hidfile = self.open_device()
+			if not hidfile:
 				return
 
 			count = 0
 			# Keep reading the character device
 			while True:
 
+				# If there is not data of the specified length available,
+				# then the read() function throws an exception.
 				try:
-					mystring = self.hidfile.read(self.WORD_LENGTH)
-
+					mystring = hidfile.read(self.WORD_LENGTH)
 				except:
-
 					if self.stopthread.isSet():
 						break
 
@@ -197,8 +196,7 @@ class ServerThread(threading.Thread):
 					continue
 
 				pedal_byte_values = map(ord, mystring)
-	#			print("Numeric representation of string:", pedal_byte_values)
-
+#				print("Numeric representation of string:", pedal_byte_values)
 
 				# Split message into signals for each pedal
 				pedal_signals = [pedal_byte_values[self.GROUP_SIZE*i:self.GROUP_SIZE*(i+1)] for i in range(self.PEDAL_COUNT)]
@@ -209,12 +207,13 @@ class ServerThread(threading.Thread):
 
 				count += 1
 
-			self.hidfile.close()
+			hidfile.close()
 
-			if not self.resetting:
-				break
-			else:
+			# We may just be choosing a different device.
+			if self.resetting:
 				self.stopthread.clear()
+			else:
+				break				
 
 	# ---------------------------------------------------------------------
 	def handle_pedal_press(self, raw_current_pedal_state):
@@ -249,27 +248,29 @@ class ServerThread(threading.Thread):
 			filtered_pedal = self.getSingleActivePedal(raw_current_pedal_state, pedals_enabled)
 			if filtered_pedal >= 0:
 				# Perform pedal action:
+				pedal_action = None
 
 				if self.app_window.cycling_functions_checkbox.get_active():
 					pedal_function_group_index = self.app_window.cycle_function_selector.get_active()
-					keycombo = self.app_window.cycling_function_keys[pedal_function_group_index][filtered_pedal]
-					if keycombo:
+					pedal_action = self.app_window.pedal_cycling_groups[pedal_function_group_index][filtered_pedal]
+					if pedal_action:
+						keycombo = pedal_action.key_combo
 						keycombo.press()
-						action_name = self.app_window.cycling_functions[pedal_function_group_index][filtered_pedal]
+
 					else:
-						new_index = (pedal_function_group_index + 1) % len(self.app_window.cycling_functions)
+						new_index = (pedal_function_group_index + 1) % len(self.app_window.pedal_cycling_groups)
 						self.app_window.cycle_function_selector.set_active( new_index )
-						action_name = self.app_window.cycle_function_selector.get_active_text()
+						pedal_action = self.app_window.cycle_function_selector.get_active_text()
 				else:
 					pedal_function_group_index = self.app_window.pedal_function_selector.get_active()
-					keycombo = self.app_window.command_matrix[pedal_function_group_index][filtered_pedal]
+					pedal_action = self.app_window.pedal_function_groups[pedal_function_group_index][filtered_pedal]
+					keycombo = pedal_action.key_combo
 					keycombo.press()
-					action_name = self.app_window.pedal_function_groups[pedal_function_group_index][filtered_pedal]
 
-				print(action_name)
+				print(pedal_action.name)
 
 				if self.pynotify_supported:
-					self.reusable_notification.update("Foot pedal function:", action_name)
+					self.reusable_notification.update("Foot pedal function:", pedal_action.name)
 					self.reusable_notification.show()
 
 	# ---------------------------------------------------------------------
@@ -310,14 +311,14 @@ class ServerThread(threading.Thread):
 					if keycombo:
 						self.held_key_combos[filtered_pedal].append(keycombo)
 						keycombo.pressDown()
-						action_name = self.app_window.cycling_functions[pedal_function_group_index][filtered_pedal]
+						action_name = self.app_window.pedal_cycling_groups[pedal_function_group_index][filtered_pedal]
 					else:
-						new_index = (pedal_function_group_index + 1) % len(self.app_window.cycling_functions)
+						new_index = (pedal_function_group_index + 1) % len(self.app_window.pedal_cycling_groups)
 						self.app_window.cycle_function_selector.set_active( new_index )
 						action_name = self.app_window.cycle_function_selector.get_active_text()
 				else:
 					pedal_function_group_index = self.app_window.pedal_function_selector.get_active()
-					keycombo = self.app_window.command_matrix[pedal_function_group_index][filtered_pedal]
+					keycombo = self.app_window.pedal_function_groups[pedal_function_group_index][filtered_pedal].key_combo
 					self.held_key_combos[filtered_pedal].append(keycombo)
 					keycombo.pressDown()
 					action_name = self.app_window.pedal_function_groups[pedal_function_group_index][filtered_pedal]
@@ -337,6 +338,18 @@ class ServerThread(threading.Thread):
 				break
 
 		return filtered_pedal
+
+
+# =============================================================================
+class CyclingFunction:
+	def __init__(self, name):
+		pass
+
+# =============================================================================
+class PedalCommand:
+	def __init__(self, name, key_combo):
+		self.name = name
+		self.key_combo = key_combo
 
 # =============================================================================
 class FootpedalAppWindow(gtk.Window):
@@ -392,44 +405,46 @@ class FootpedalAppWindow(gtk.Window):
 
 		# These are "default" or "builtin" presets
 		self.pedal_function_groups = [
-			["Cut", "Copy", "Paste"],
-			["VolDown", "Mute", "VolUp"],
-			["Rew", "Play", "FF"],
-			["Home", "Down", "PgDown"]
-		]
-
-		self.command_matrix = [
-			[KeyCombo("x", [KeyCombo.KEYNAME_CONTROL]), KeyCombo("c", [KeyCombo.KEYNAME_CONTROL]), KeyCombo("v", [KeyCombo.KEYNAME_CONTROL])],
-			[KeyCombo("XF86AudioLowerVolume"), KeyCombo("XF86AudioMute"), KeyCombo("XF86AudioRaiseVolume")],
-			[KeyCombo("XF86AudioPrev"), KeyCombo("XF86AudioPlay"), KeyCombo("XF86AudioNext")],
-			[KeyCombo("Home"), KeyCombo("Down"), KeyCombo("Page_Down")]
-		]
-
-		self.cycling_functions = [
-			["Cycle Desktops left", None, "Cycle Desktops right"],
-			["Cycle Applications backward", None, "Cycle Applications forward"],
-			["Cycle Tabs backward", None, "Cycle Tabs forward"],
-			["Scroll web page up", None, "Scroll web page down"],
-		]
-		self.cycling_function_keys = [
 			[
-				KeyCombo("Left", [KeyCombo.KEYNAME_CONTROL, KeyCombo.KEYNAME_ALT]),
-				None,
-				KeyCombo("Right", [KeyCombo.KEYNAME_CONTROL, KeyCombo.KEYNAME_ALT])
+				PedalCommand("Cut", KeyCombo("x", [KeyCombo.KEYNAME_CONTROL])),
+				PedalCommand("Copy", KeyCombo("c", [KeyCombo.KEYNAME_CONTROL])),
+				PedalCommand("Paste", KeyCombo("v", [KeyCombo.KEYNAME_CONTROL])),
 			], [
-				KeyCombo("Tab", [KeyCombo.KEYNAME_ALT, KeyCombo.KEYNAME_SHIFT]),
-				None,
-				KeyCombo("Tab", [KeyCombo.KEYNAME_ALT])
+				PedalCommand("VolDown", KeyCombo("XF86AudioLowerVolume")),
+				PedalCommand("Mute", KeyCombo("XF86AudioMute")),
+				PedalCommand("VolUp", KeyCombo("XF86AudioRaiseVolume")),
 			], [
-				KeyCombo("Tab", [KeyCombo.KEYNAME_CONTROL, KeyCombo.KEYNAME_SHIFT]),
-				None,
-				KeyCombo("Tab", [KeyCombo.KEYNAME_CONTROL])
+				PedalCommand("Rew", KeyCombo("XF86AudioPrev")),
+				PedalCommand("Play", KeyCombo("XF86AudioPlay")),
+				PedalCommand("FF", KeyCombo("XF86AudioNext")),
 			], [
-				KeyCombo("space", [KeyCombo.KEYNAME_SHIFT]),
-				None,
-				KeyCombo("space")
+				PedalCommand("Home", KeyCombo("Home")),
+				PedalCommand("Down", KeyCombo("Down")),
+				PedalCommand("PgDown", KeyCombo("Page_Down")),
 			]
 		]
+
+
+		self.pedal_cycling_groups = [
+			[
+				PedalCommand("Cycle Desktops left", KeyCombo("Left", [KeyCombo.KEYNAME_CONTROL, KeyCombo.KEYNAME_ALT])),
+				None,
+				PedalCommand("Cycle Desktops right", KeyCombo("Right", [KeyCombo.KEYNAME_CONTROL, KeyCombo.KEYNAME_ALT])),
+			], [
+				PedalCommand("Cycle Applications backward", KeyCombo("Tab", [KeyCombo.KEYNAME_ALT, KeyCombo.KEYNAME_SHIFT])),
+				None,
+				PedalCommand("Cycle Applications forward", KeyCombo("Tab", [KeyCombo.KEYNAME_ALT])),
+			], [
+				PedalCommand("Cycle Tabs backward", KeyCombo("Tab", [KeyCombo.KEYNAME_CONTROL, KeyCombo.KEYNAME_SHIFT])),
+				None,
+				PedalCommand("Cycle Tabs forward", KeyCombo("Tab", [KeyCombo.KEYNAME_CONTROL])),
+			], [
+				PedalCommand("Scroll web page up", KeyCombo("space", [KeyCombo.KEYNAME_SHIFT])),
+				None,
+				PedalCommand("Scroll web page down", KeyCombo("space")),
+			]
+		]
+
 
 		self.connect("delete_event", self.delete_event)
 		self.connect("destroy", self.destroy)
@@ -468,7 +483,7 @@ class FootpedalAppWindow(gtk.Window):
        
 		control_hbox = gtk.HBox(False, self.WINDOW_PADDING)
 		vbox.pack_start(control_hbox, False, False)
-		control_hbox.pack_start(gtk.Label("Launcher ID:"), False, False)
+		control_hbox.pack_start(gtk.Label("Device ID:"), False, False)
 
 		myadj = gtk.Adjustment(self.hid_device_index, 0, 15, 1)
 		device_selector_spinbutton = gtk.SpinButton(myadj, 0, 0)
@@ -490,16 +505,16 @@ class FootpedalAppWindow(gtk.Window):
 
 
 		self.pedal_function_selector = gtk.combo_box_new_text()
-		for src in self.pedal_function_groups:
-			self.pedal_function_selector.append_text( "/".join(src) )
+		for pedal_function_group in self.pedal_function_groups:
+			self.pedal_function_selector.append_text( "/".join([pedal_function.name for pedal_function in pedal_function_group]) )
 		self.pedal_function_selector.append_text( "New..." )
 
 		lil_hbox.pack_start( self.pedal_function_selector, False, False)
 		self.pedal_function_selector.connect("changed", self.cb_functions_changed)
 
 		self.cycle_function_selector = gtk.combo_box_new_text()
-		for label in self.cycling_functions:
-			self.cycle_function_selector.append_text( " ".join(label[0].split(" ")[:-1]) )
+		for pedal_cycling_group in self.pedal_cycling_groups:
+			self.cycle_function_selector.append_text( " ".join(pedal_cycling_group[0].name.split(" ")[:-1]) )
 		lil_hbox.pack_start( self.cycle_function_selector, False, False)
 		self.cycle_function_selector.connect("changed", self.cb_cycles_changed)
 #		self.cycle_function_selector.set_no_show_all(True)
@@ -609,8 +624,8 @@ class FootpedalAppWindow(gtk.Window):
 			for i in range(3):
 				ts.append([
 					self.PEDAL_LABELS[i],
-					self.pedal_function_groups[pedal_function_group_index][i],
-					self.command_matrix[pedal_function_group_index][i].KEY
+					self.pedal_function_groups[pedal_function_group_index][i].name,
+					self.pedal_function_groups[pedal_function_group_index][i].key_combo.key
 				])
 		else:
 			for i in range(3):
@@ -674,10 +689,10 @@ class FootpedalAppWindow(gtk.Window):
 		treestore = self.pedalpress_treeview.get_model()
 		toplevel_iter = treestore.get_iter_first()
 
-		labels = self.pedal_function_groups[pedal_function_group_index]
+		function_group = self.pedal_function_groups[pedal_function_group_index]
 
-		for value in labels:
-			treestore.set_value(toplevel_iter, self.TREESTORE_COLUMN_FUNCTION_NAME, value)
+		for pedal_function in function_group:
+			treestore.set_value(toplevel_iter, self.TREESTORE_COLUMN_FUNCTION_NAME, pedal_function.name)
 			toplevel_iter = treestore.iter_next(toplevel_iter)
 
 	# ---------------------------------------------------------------------
@@ -765,7 +780,6 @@ class FootpedalAppWindow(gtk.Window):
 
 		print("Trying to reset pedal...")
 		self.server_thread.stopthread.set()
-
 
 	# ---------------------------------------------------------------------
 	def destroy(self, widget, data=None):
