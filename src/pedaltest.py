@@ -1,10 +1,14 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 # http://www.execommsys.com/VEC%20Professional%20Foot%20Pedals.htm
 # 05f3:00ff PI Engineering, Inc.
 
+
+from time import sleep
+
 signal_chars = [4, 12, 20]
 WORD_LENGTH = 24
+
 
 def open_device():
 	hid_dev_index = 0
@@ -12,15 +16,15 @@ def open_device():
 	if len(sys.argv) > 1:
 		hid_dev_index = int(sys.argv[1])
 
-	hidfilename = "/dev/usb/hiddev%d" % (hid_dev_index)
+	hidfilename = "/dev/usb/hiddev%d" % hid_dev_index
 
 	hidfile = None
 	try:
-		print "Attempting to open %s..." % hidfilename
+		print("Attempting to open %s..." % hidfilename)
 		hidfile = open(hidfilename)
 	except IOError:
-		print "You need permission to access the device.  Type the following:"
-		print "sudo chmod a+r %s" % (hidfilename)
+		print("You need permission to access the device.  Type the following:")
+		print("sudo chmod a+r %s" % hidfilename)
 		exit(1)
 
 	# Trick adopted from http://stackoverflow.com/questions/375427/non-blocking-read-on-a-stream-in-python/1810703#1810703
@@ -35,7 +39,7 @@ def open_device():
 
 if __name__=="__main__":
 
-	print "Depress pedal to test..."
+	print("Depress pedal to test...")
 	hidfile = open_device()
 
 	prev_state = [0]*3
@@ -57,11 +61,13 @@ if __name__=="__main__":
 			time.sleep(0.05)
 			continue
 
-		print "="*40, "COUNT:", count, "="*40
-		print "Ord characters:", map(ord, mystring)
+		print("="*40, "COUNT:", count, "="*40)
+		ord_chars = list(map(ord, mystring))
+		ord_chars += [0] * (WORD_LENGTH - len(ord_chars))
+		print("Ord characters:", ord_chars)
 
-		buttons = [ord(mystring[i]) for i in signal_chars]
-		print "Current state:", buttons, "Previous state:", prev_state
+		buttons = [ord_chars[i] for i in signal_chars]
+		print("Current state:", buttons, "Previous state:", prev_state)
 		prev_state = buttons
 
 		count += 1
